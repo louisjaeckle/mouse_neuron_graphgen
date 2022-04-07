@@ -38,7 +38,6 @@ class Connectome:
         self.node_dict = dict()
         self.lo_bound = []  # [min x, min y, min z]
         self.hi_bound = []  # [max x, max y, max z]
-        # TODO add in min/max bounds
         for node in list(G.nodes):
             try:
                 if float(Xs[node]) > 80:
@@ -65,35 +64,18 @@ class Connectome:
         self.coordinates = self.coordinates[reorder]
         self.names = self.names[reorder]
 
-    def get_subgraph(self, bounds, cube_dim):  # bounds = [xbound,ybound,zbound], cube dim is side size of square
-        # returns ndarray of names, ndarray of locations, sortex by ascending z coordinates
-        lo_ind, hi_ind = 0, 0
-        locations = self.coordinates
-        names = self.names
-        for ind in range(3):
-            lo_ind = binary_search(locations, bounds[ind], ind)
-            if lo_ind == -1:
-                print('no nodes in range')  # no nodes left
-                return [], []
-            hi_ind = binary_search(locations, bounds[ind] + cube_dim, ind)
-            if hi_ind <= lo_ind:
-                print('no nodes in range')  # no nodes left
-                return [], []
-            locations = locations[lo_ind:hi_ind]
-            names = names[lo_ind:hi_ind]
-            if (ind != 2):
-                reorder = locations[:, ind + 1].argsort()
-                locations = locations[reorder]
-                names = names[reorder]
-        return names, locations
-
-    def plot_empirical_subnetwork(self, bounds, cube_dim, points_size=30):  # inputs formatted like get_subgraph above
+    def plot_cube(self, bounds, cube_dim, points_size=30):
+        # 3d plots subgraph in cube given by bounds
+        # bounds = [xbound,ybound,zbound], cube dim is side size of square
         # returns whether succeeded
 
-        node_names, locs = self.get_subgraph(bounds, cube_dim)
+        node_names, locs = self.get_cube(bounds, cube_dim)
 
         if len(node_names) == 0:
             return False
+
+        % matplotlib
+        notebook
 
         seen_nodes = set()
 
@@ -115,6 +97,10 @@ class Connectome:
 
         ax.scatter(x_plots, y_plots, z_plots, s=points_size, color='blue')
 
+        # uncomment to display node labels
+        #         for node in node_names:
+        #             ax.text(*self.node_dict[node],node,size=10,zorder=1,color='k')
+
         for node1, node2 in node_pairs:
             plt_args = [[self.node_dict[node1][i], self.node_dict[node2][i]] for i in range(3)]
             ax.plot(*plt_args)
@@ -122,65 +108,104 @@ class Connectome:
 
         return True
 
+    def plot_random_cube(self,cube_dim, points_size=None):
+        #3d plots subnetwork in cube with random bounds
+        #returns whether succeeded
+        success = False
+        while not success:
+            bounds = self.get_random_bounds(cube_dim)
+            if points_size==None:
+                success = self.plot_cube(bounds,cube_dim)
+            else:
+                success = self.plot_cube(bounds,cube_dim,points_size=points_size)
+
+    # get random bounds for a cube to parse
     def get_random_bounds(self, cube_dim):
-        # get random bounds for a cube to parse. Old method was biased, new method places center of cube randomly then gets bounds
         center = [np.random.uniform(self.lo_bound[ind], self.hi_bound[ind]) for ind in range(3)]
         return [coord - (cube_dim / 2) for coord in center]
 
-    def plot_random_empirical_subnetwork(self, cube_dim, points_size=None):
-        # returns whether succeeded
-        bounds = self.get_random_bounds(cube_dim)
-        if points_size == None:
-            return self.plot_empirical_subnetwork(bounds, cube_dim)
-        else:
-            return self.plot_empirical_subnetwork(bounds, cube_dim, points_size=points_size)
+    # parses network into cube and returns nodes in cube
+    def get_cube(self, bounds, cube_dim):
+        # bounds = [xbound,ybound,zbound], cube dim is side size of square
+        # returns names, locations sorted by ascending z coordinates (ndarrays)
+        lo_ind, hi_ind = 0, 0
+        locations = self.coordinates
+        names = self.names
+        for ind in range(3):
+            lo_ind = binary_search(locations, bounds[ind], ind)
+            if lo_ind == -1:
+                #                 print('no nodes in range')#no nodes left
+                return [], []
+            hi_ind = binary_search(locations, bounds[ind] + cube_dim, ind)
+            if hi_ind <= lo_ind:
+                #                 print('no nodes in range')#no nodes left
+                return [], []
+            locations = locations[lo_ind:hi_ind]
+            names = names[lo_ind:hi_ind]
+            if (ind != 2):
+                reorder = locations[:, ind + 1].argsort()
+                locations = locations[reorder]
+                names = names[reorder]
+        return names, locations
 
-    def parse_subgraph(self, names, locations, dim):
+    # parse cube into degrees, adjacencies
+    def parse_cube(self, names, locations, dim):
+        # takes nodes and parses into (dim x dim x dim) matrix, then extracts degree structure and adjacency matrix
         # names is ndarray of node names, locations ndarray of coordinates
         # formated like output of get_subgraph (ie sorted by ascending z coordinates)
         # dim is size of cube, in terms of neurons per side
 
-        # return ndarray out_subgraph where out_subgraph[i][j][k] is the name of the node in the ith layer, jth row, kth col
-
+        # return flattened arrays degrees,adjacencies, which are representations of the degree structure and adjacency matrix
         if len(names) < dim ** 3:
-            print('not enough nodes to parse')
-            return np.array([])
-
-        out_subgraph = []
-        for bott_ind in range(0, dim ** 3, dim ** 2):  # exclusive
-            out_subgraph.append([])
+            #             print('not enough nodes to parse')
+            return np.array([]), np.array([])
+        degrees = np.zeros(dim ** 3)
+        adj_matrix = [[0 for _ in range(row_len)] for row_len in
+                      range(dim ** 3)]  # 2d list indexed by [higher node index],[lower node index]
+        node_indices = {}
+        for bott_ind in range(0, dim ** 3, dim ** 2):
             layer_names = names[bott_ind:bott_ind + dim ** 2]
             layer_locs = locations[bott_ind:bott_ind + dim ** 2]
             reorder = layer_locs[:, 1].argsort()  # sort by y
             layer_names = layer_names[reorder]
             layer_locs = layer_locs[reorder]
             for lo_ind in range(0, dim ** 2, dim):
-                order = layer_locs[lo_ind:lo_ind + dim, 0].argsort()  # sort by x
-                out_subgraph[-1].append([layer_names[i] for i in order])
+                row_names = layer_names[lo_ind:lo_ind + dim]
+                reorder = layer_locs[lo_ind:lo_ind + dim, 0].argsort()  # sort by x
+                row_names = row_names[reorder]
+                for col in range(dim):
+                    node_index = bott_ind + lo_ind + col
+                    # get neighbors, update node_info and edges
+                    for neighbor in self.G.neighbors(row_names[col]):
+                        if neighbor in node_indices:
+                            degrees[node_index] += 1
+                            degrees[node_indices[neighbor]] += 1
+                            adj_matrix[node_index][node_indices[neighbor]] = 1
+                    node_indices[row_names[col]] = node_index
 
-        return np.asarray(out_subgraph)
+        adj_matrix = [val for adj_row in adj_matrix for val in adj_row]
+        return degrees, np.asarray(adj_matrix)
 
-    def get_bounded_subgraph(self, cube_dim, parse_dim, bounds):
-        # parses subgraph with given bounds
-        names, locations = self.get_subgraph(bounds, cube_dim)
-        return self.parse_subgraph(names, locations, parse_dim)
+    # gets and parses subgraph in cube with given bounds
+    def get_and_parse(self, cube_dim, parse_dim, bounds):
+        # return flattened ndarrays degrees,adjacencies, which are representations of the degree structure and adjacency matrix
+        names, locations = self.get_cube(bounds, cube_dim)
+        degrees, adjacencies = self.parse_cube(names, locations, parse_dim)
+        return degrees, adjacencies
 
-    def get_random_subgraph(self, cube_dim, parse_dim, bounds=[]):
-        # randomly generates a point in the space of the network (unless bounds specified), extracts a cube, and parses that into a 3d matrix
-        # random bound generation continues until
+    # get flattened degrees, flattened adjacencies of a random cube
+    def random_get_and_parse(self, cube_dim, parse_dim):
+        # random bound generation continues until viable one found
         # cube_dim- side size of cube used in subnetwork
         # parse dim- side dimension of 3d matrix to parse subgraph into
+        # return flattened ndarrays degrees,adjacencies, which are representations of the degree structure and adjacency matrix
         parsed_subgraph = None
         while True:
             bounds = self.get_random_bounds(cube_dim)
-            names, locations = self.get_subgraph(bounds, cube_dim)
-            parsed_subgraph = self.parse_subgraph(names, locations, parse_dim)
-            if np.size(parsed_subgraph) != 0:
-                return parsed_subgraph
+            degrees, adjacencies = self.get_and_parse(cube_dim, parse_dim, bounds)
 
-    def subgraph_generator(self, cube_dim, parse_dim):
-        while True:
-            yield self.get_random_subgraph(cube_dim, parse_dim)
+            if len(degrees) != 0:
+                return degrees, adjacencies
 
 
 path_to_gml = r'C:\Users\Louis\PycharmProjects\mouse_connectome\mouse_retina_1.graphml'##put path to mouse_retina_1.graphml here
@@ -189,8 +214,9 @@ path_to_gml = r'C:\Users\Louis\PycharmProjects\mouse_connectome\mouse_retina_1.g
 print('reading. . .')
 graph = nx.read_graphml(path_to_gml)
 print('done')
+graph = graph.to_undirected()#github says its undirected, and from/to is arbitrary, so ig do this
 mouse_connectome = Connectome(graph)
 
 success = False
 while not success:
-    success = mouse_connectome.plot_random_empirical_subnetwork(20)
+    success = mouse_connectome.plot_random_cube(20)
