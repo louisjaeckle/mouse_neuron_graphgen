@@ -74,9 +74,6 @@ class Connectome:
         if len(node_names) == 0:
             return False
 
-        % matplotlib
-        notebook
-
         seen_nodes = set()
 
         node_pairs = []  # list of connected [node,node] pairs
@@ -110,7 +107,6 @@ class Connectome:
 
     def plot_random_cube(self,cube_dim, points_size=None):
         #3d plots subnetwork in cube with random bounds
-        #returns whether succeeded
         success = False
         while not success:
             bounds = self.get_random_bounds(cube_dim)
@@ -217,6 +213,4 @@ print('done')
 graph = graph.to_undirected()#github says its undirected, and from/to is arbitrary, so ig do this
 mouse_connectome = Connectome(graph)
 
-success = False
-while not success:
-    success = mouse_connectome.plot_random_cube(20)
+mouse_connectome.plot_random_cube(20)
