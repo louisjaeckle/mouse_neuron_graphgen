@@ -203,14 +203,26 @@ class Connectome:
             if len(degrees) != 0:
                 return degrees, adjacencies
 
+    def example_generator(self,cube_dim,parse_dim,batch_size=32):
+        n_nodes = int(parse_dim**3)#number of nodes per cube
+        while True:
+            train_features = np.empty((batch_size,n_nodes))
+            train_labels = np.empty((batch_size,int(n_nodes*(n_nodes-1)/2)))
+            for i in range(batch_size):
+                features, labels = self.random_get_and_parse(cube_dim, parse_dim)
+                train_features[i] = features
+                train_labels[i] = labels
+            yield train_features,train_labels
 
-path_to_gml = r'C:\Users\Louis\PycharmProjects\mouse_connectome\mouse_retina_1.graphml'##put path to mouse_retina_1.graphml here
-#can be downloaded from https://neurodata.io/project/connectomes/
 
-print('reading. . .')
-graph = nx.read_graphml(path_to_gml)
-print('done')
-graph = graph.to_undirected()#github says its undirected, and from/to is arbitrary, so ig do this
-mouse_connectome = Connectome(graph)
+if __name__=='__main__':
+    path_to_gml = r'C:\Users\Louis\jupyter_ntbks\csci3352_mouse_proj\mouse_retina_1.graphml'##put path to mouse_retina_1.graphml here
+    #can be downloaded from https://neurodata.io/project/connectomes/
 
-mouse_connectome.plot_random_cube(20)
+    print('reading. . .')
+    graph = nx.read_graphml(path_to_gml)
+    print('done')
+    graph = graph.to_undirected()#github says its undirected, and from/to is arbitrary, so ig do this
+    mouse_connectome = Connectome(graph)
+
+    mouse_connectome.plot_random_cube(20)
